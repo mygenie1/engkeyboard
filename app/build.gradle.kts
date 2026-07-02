@@ -56,4 +56,8 @@ android {
 dependencies {
     // 안드로이드 기본 도구 모음입니다.
     implementation("androidx.core:core-ktx:1.13.1")
+
+    // 한글 조합 엔진을 자동으로 검사하는 테스트 도구(JUnit)입니다.
+    // PC가 아니라 GitHub 서버에서 빌드할 때 자동 실행됩니다.
+    testImplementation("junit:junit:4.13.2")
 }
