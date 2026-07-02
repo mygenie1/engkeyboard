@@ -12,16 +12,20 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.hanyeong.keyboard.dict.DictEntry
 
 /**
- * 두벌식 한글 자판을 '직접 그리는' 화면입니다.
+ * 두벌식 한글 자판 + 추천 바 + 학습 카드를 '직접 그리는' 화면입니다.
  *
- * 안드로이드의 오래된 기본 키보드 틀을 쓰지 않고,
- * 줄(row)과 키(TextView)를 코드로 하나하나 배치합니다.
- * 그래서 키 높이·색·모양을 자유롭게 바꿀 수 있고,
- * 나중에 이 위에 '추천 바'와 '학습 카드'를 얹기 쉽습니다.
+ * 세로 구조:
+ *   [추천 바]  ← 항상 같은 높이로 자리를 차지 (비어 있어도) → 나타나도 화면이 안 밀림
+ *   [본체]     ← 자판 + 그 위에 겹쳐지는 학습 카드
+ *
+ * 학습 카드는 자판 위에 '겹쳐서' 열립니다. 전체 높이가 변하지 않으므로
+ * 카드가 열리고 닫혀도 입력창이 위아래로 출렁이지 않습니다.
  */
 @SuppressLint("ViewConstructor")
 class KoreanKeyboardView(context: Context) : LinearLayout(context) {
@@ -32,78 +36,214 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         fun onBackspace()        // 지우기
         fun onSpace()            // 띄어쓰기
         fun onEnter()            // 줄바꿈/전송
-        fun onText(text: String) // 쉼표, 마침표 등 일반 글자
+        fun onText(text: String) // 쉼표, 마침표, 숫자 등 일반 글자
     }
 
     var listener: Listener? = null
 
-    // 지금 Shift(쌍자음)가 눌린 상태인지
     private var shifted = false
-
-    // 자모 키들을 기억해 두었다가 Shift 상태에 따라 글자를 바꿔 답니다.
     private val charKeys = mutableListOf<Pair<TextView, CharKey>>()
-
-    /** 자모 키 하나의 정보. normal=평소 글자, shifted=Shift 눌렀을 때 글자(없으면 동일). */
     private data class CharKey(val normal: String, val shifted: String? = null)
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Float): Int = (v * density).toInt()
-    private fun sp(v: Float): Float = v
 
-    // 지금 화면이 가로 모드인지 확인합니다.
     private val isLandscape =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 키 높이: 가로 모드에서는 화면이 낮으므로 훨씬 작게 잡습니다.
-    private val charRowH = if (isLandscape) 34f else 52f   // 자모 줄 높이(dp)
-    private val numRowH = if (isLandscape) 28f else 44f    // 숫자 줄 높이(dp)
+    // 키/바 높이: 가로 모드에서는 더 낮게
+    private val charRowH = if (isLandscape) 34f else 52f
+    private val numRowH = if (isLandscape) 28f else 44f
+    private val suggestionBarH = if (isLandscape) 34f else 46f
 
-    // 백스페이스 '꾹 누르기'용 타이머. 화면이 사라질 때 확실히 멈추도록 하나만 둡니다.
     private val repeatHandler = Handler(Looper.getMainLooper())
 
-    // 색상 (은은한 회색 배경 + 흰 글쇠)
+    // 색상
     private val colorBoard = Color.parseColor("#D5D8DE")
     private val colorKey = Color.parseColor("#FFFFFF")
     private val colorKeyPressed = Color.parseColor("#C7CBD1")
     private val colorSpecial = Color.parseColor("#B9BEC7")
     private val colorSpecialPressed = Color.parseColor("#9AA0AB")
     private val colorText = Color.parseColor("#1C1E21")
+    private val colorChip = Color.parseColor("#FFFFFF")
+    private val colorChipText = Color.parseColor("#1A5FB4")
+    private val colorCardBg = Color.parseColor("#FFFFFF")
+    private val colorMeaning = Color.parseColor("#374151")
+    private val colorSub = Color.parseColor("#6B7280")
+
+    // 추천 바와 학습 카드의 부품들
+    private lateinit var suggestionBar: LinearLayout
+    private lateinit var cardView: LinearLayout
+    private lateinit var cardEnglish: TextView
+    private lateinit var cardPron: TextView
+    private lateinit var cardMeaning: TextView
+    private lateinit var cardExample: TextView
 
     init {
         orientation = VERTICAL
         setBackgroundColor(colorBoard)
-        // 가로 모드에서는 위아래 여백도 줄여 전체 높이를 더 낮춥니다.
+
+        // 1) 추천 바 (항상 표시, 높이 고정)
+        suggestionBar = buildSuggestionBar()
+        addView(
+            suggestionBar,
+            LayoutParams(LayoutParams.MATCH_PARENT, dp(suggestionBarH))
+        )
+
+        // 2) 본체: 자판 + 카드(겹침)
+        val body = FrameLayout(context)
+
+        val keys = LinearLayout(context)
+        keys.orientation = VERTICAL
         val vPad = if (isLandscape) 3f else 6f
-        setPadding(dp(3f), dp(vPad), dp(3f), dp(vPad + 2f))
-
-        // 맨 윗줄: 숫자 1234567890 (항상 표시)
-        addView(buildNumberRow())
-
-        // 1번째 줄: ㅂㅈㄷㄱㅅ ㅛㅕㅑㅐㅔ
-        addView(buildCharRow(listOf(
+        keys.setPadding(dp(3f), dp(vPad), dp(3f), dp(vPad + 2f))
+        keys.addView(buildNumberRow())
+        keys.addView(buildCharRow(listOf(
             CharKey("ㅂ", "ㅃ"), CharKey("ㅈ", "ㅉ"), CharKey("ㄷ", "ㄸ"),
             CharKey("ㄱ", "ㄲ"), CharKey("ㅅ", "ㅆ"),
             CharKey("ㅛ"), CharKey("ㅕ"), CharKey("ㅑ"),
             CharKey("ㅐ", "ㅒ"), CharKey("ㅔ", "ㅖ")
         )))
-
-        // 2번째 줄: ㅁㄴㅇㄹㅎ ㅗㅓㅏㅣ (9개라 좌우로 살짝 안쪽에 배치)
-        addView(buildCharRow(
+        keys.addView(buildCharRow(
             listOf(
                 CharKey("ㅁ"), CharKey("ㄴ"), CharKey("ㅇ"), CharKey("ㄹ"), CharKey("ㅎ"),
                 CharKey("ㅗ"), CharKey("ㅓ"), CharKey("ㅏ"), CharKey("ㅣ")
             ),
             sideSpacerWeight = 0.5f
         ))
+        keys.addView(buildRow3())
+        keys.addView(buildRow4())
+        body.addView(
+            keys,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+        )
 
-        // 3번째 줄: [Shift] ㅋㅌㅊㅍ ㅠㅜㅡ [지우기]
-        addView(buildRow3())
+        // 학습 카드: 처음엔 숨김, 열리면 자판을 덮음
+        cardView = buildCardView()
+        cardView.visibility = GONE
+        body.addView(
+            cardView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
 
-        // 4번째 줄: [쉼표] [스페이스] [마침표] [엔터]
-        addView(buildRow4())
+        addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
 
-    /** 숫자 줄(1~0)을 만듭니다. 숫자는 조합 대상이 아니라 일반 글자로 바로 입력됩니다. */
+    // ── 추천 바 ─────────────────────────────────────────────────────
+
+    private fun buildSuggestionBar(): LinearLayout {
+        val bar = LinearLayout(context)
+        bar.orientation = HORIZONTAL
+        bar.gravity = Gravity.CENTER_VERTICAL
+        bar.setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
+        return bar
+    }
+
+    /**
+     * 추천 단어들을 추천 바에 표시합니다. (빈 목록이면 바를 비웁니다)
+     * Service가 '단어를 다 쳤을 때' 호출합니다.
+     */
+    fun showSuggestions(entries: List<DictEntry>) {
+        suggestionBar.removeAllViews()
+        for (e in entries) {
+            val chip = makeChip(e.english)
+            chip.setOnClickListener { openCard(e) }
+            val lp = LayoutParams(LayoutParams.WRAP_CONTENT, dp(if (isLandscape) 26f else 34f))
+            lp.marginEnd = dp(6f)
+            suggestionBar.addView(chip, lp)
+        }
+    }
+
+    private fun makeChip(english: String): TextView {
+        val tv = TextView(context)
+        tv.text = english
+        tv.gravity = Gravity.CENTER
+        tv.setTextColor(colorChipText)
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        tv.setPadding(dp(14f), 0, dp(14f), 0)
+        tv.isClickable = true
+        tv.background = keyBackground(colorChip, colorKeyPressed)
+        return tv
+    }
+
+    // ── 학습 카드 ───────────────────────────────────────────────────
+
+    private fun buildCardView(): LinearLayout {
+        val card = LinearLayout(context)
+        card.orientation = VERTICAL
+        card.setBackgroundColor(colorCardBg)
+        card.setPadding(dp(18f), dp(14f), dp(18f), dp(14f))
+        // 카드는 자판을 덮는 불투명 판입니다. 아무 곳이나 누르면 닫혀,
+        // 다시 타이핑을 시작할 수 있습니다.
+        card.isClickable = true
+        card.setOnClickListener { hideCard() }
+
+        // 윗줄: 영어 단어 + 발음기호 + 닫기(✕)
+        val top = LinearLayout(context)
+        top.orientation = HORIZONTAL
+        top.gravity = Gravity.CENTER_VERTICAL
+
+        cardEnglish = TextView(context)
+        cardEnglish.setTextColor(colorText)
+        cardEnglish.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+        cardEnglish.setTypeface(cardEnglish.typeface, android.graphics.Typeface.BOLD)
+        top.addView(cardEnglish)
+
+        cardPron = TextView(context)
+        cardPron.setTextColor(colorSub)
+        cardPron.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        val pronLp = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+        pronLp.marginStart = dp(10f)
+        top.addView(cardPron, pronLp)
+
+        val spacer = View(context)
+        top.addView(spacer, LayoutParams(0, 1, 1f))
+
+        val close = TextView(context)
+        close.text = "✕"
+        close.setTextColor(colorSub)
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        close.setPadding(dp(8f), dp(2f), dp(4f), dp(2f))
+        close.isClickable = true
+        close.setOnClickListener { hideCard() }
+        top.addView(close)
+
+        card.addView(top)
+
+        // 뜻
+        cardMeaning = TextView(context)
+        cardMeaning.setTextColor(colorMeaning)
+        cardMeaning.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        val meaningLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+        meaningLp.topMargin = dp(10f)
+        card.addView(cardMeaning, meaningLp)
+
+        // 예문
+        cardExample = TextView(context)
+        cardExample.setTextColor(colorSub)
+        cardExample.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        val exLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+        exLp.topMargin = dp(6f)
+        card.addView(cardExample, exLp)
+
+        return card
+    }
+
+    private fun openCard(e: DictEntry) {
+        cardEnglish.text = e.english
+        cardPron.text = e.pronunciation
+        cardMeaning.text = "뜻 · ${e.meaning}"
+        cardExample.text = "예문 · ${e.example}"
+        cardView.visibility = VISIBLE
+    }
+
+    /** 학습 카드를 닫습니다. (다시 타이핑을 시작하면 호출됨) */
+    fun hideCard() {
+        if (cardView.visibility != GONE) cardView.visibility = GONE
+    }
+
+    // ── 자판 줄 만들기 ──────────────────────────────────────────────
+
     private fun buildNumberRow(): View {
         val row = rowContainer(numRowH)
         for (n in listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")) {
@@ -114,7 +254,6 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         return row
     }
 
-    /** 자모 키들로만 이루어진 한 줄을 만듭니다. */
     private fun buildCharRow(keys: List<CharKey>, sideSpacerWeight: Float = 0f): View {
         val row = rowContainer(charRowH)
         if (sideSpacerWeight > 0f) row.addView(spacer(sideSpacerWeight))
@@ -174,12 +313,11 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private fun onCharKeyTapped(k: CharKey) {
         val text = if (shifted && k.shifted != null) k.shifted else k.normal
         listener?.onJamo(text[0])
-        if (shifted) setShifted(false) // 한 글자 치면 Shift 자동 해제 (한 번만 적용)
+        if (shifted) setShifted(false) // 한 글자 치면 Shift 자동 해제
     }
 
     private fun toggleShift() = setShifted(!shifted)
 
-    /** Shift 상태를 바꾸고, 자모 키들의 글자를 그에 맞게 다시 답니다. */
     fun setShifted(on: Boolean) {
         shifted = on
         for ((tv, k) in charKeys) {
@@ -189,11 +327,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     /**
      * '꾹 누르기' 반복 입력을 붙입니다. (백스페이스용)
-     *  - 누르는 순간 1번 실행
-     *  - 약 0.4초 뒤부터 반복 시작
-     *  - 반복할수록 간격이 짧아져 점점 빨라짐
-     *  - 손을 떼거나 손가락이 키 밖으로 나가면 즉시 멈춤
-     * 삼성 키보드/Gboard의 표준 동작과 같습니다.
+     *  - 누르는 순간 1번 실행 → 약 0.4초 뒤부터 반복 → 반복할수록 빨라짐 → 떼면 즉시 멈춤
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun attachRepeatingTouch(view: View, action: () -> Unit) {
@@ -202,7 +336,6 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         repeater = Runnable {
             action()
             repeatCount++
-            // 반복 횟수가 늘수록 간격을 줄여 가속시키되, 최소 간격 아래로는 안 내려갑니다.
             val interval = (FIRST_INTERVAL_MS - repeatCount * ACCEL_STEP_MS)
                 .coerceAtLeast(MIN_INTERVAL_MS)
             repeatHandler.postDelayed(repeater, interval.toLong())
@@ -212,13 +345,13 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
                 MotionEvent.ACTION_DOWN -> {
                     v.isPressed = true
                     repeatCount = 0
-                    action()                                   // 즉시 1번 삭제
+                    action()
                     repeatHandler.postDelayed(repeater, HOLD_DELAY_MS)
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.isPressed = false
-                    repeatHandler.removeCallbacks(repeater)     // 즉시 멈춤
+                    repeatHandler.removeCallbacks(repeater)
                     true
                 }
                 else -> false
@@ -226,7 +359,6 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    // 화면(자판)이 사라질 때, 혹시 돌고 있던 반복 삭제를 확실히 멈춥니다.
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         repeatHandler.removeCallbacksAndMessages(null)
@@ -234,7 +366,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     // ── 화면 부품 만들기 도우미들 ────────────────────────────────────
 
-    private fun rowContainer(heightDp: Float = 52f): LinearLayout {
+    private fun rowContainer(heightDp: Float): LinearLayout {
         val row = LinearLayout(context)
         row.orientation = HORIZONTAL
         val lp = LayoutParams(LayoutParams.MATCH_PARENT, dp(heightDp))
@@ -261,14 +393,13 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         tv.text = label
         tv.gravity = Gravity.CENTER
         tv.setTextColor(colorText)
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp(20f))
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
         tv.isClickable = true
         tv.isFocusable = true
         tv.background = keyBackground(normalColor, pressedColor)
         return tv
     }
 
-    /** 평소/눌렀을 때 두 가지 모양을 가진 둥근 사각형 키 배경을 만듭니다. */
     private fun keyBackground(normalColor: Int, pressedColor: Int): StateListDrawable {
         fun round(color: Int) = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -282,10 +413,9 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     }
 
     companion object {
-        // 백스페이스 '꾹 누르기' 반복 타이밍(밀리초)
-        private const val HOLD_DELAY_MS = 400L     // 누른 뒤 반복이 시작되기까지의 시간
-        private const val FIRST_INTERVAL_MS = 120  // 반복 시작 직후의 간격
-        private const val ACCEL_STEP_MS = 8        // 반복할 때마다 줄어드는 간격(가속)
-        private const val MIN_INTERVAL_MS = 35     // 가장 빠를 때의 간격(하한)
+        private const val HOLD_DELAY_MS = 400L
+        private const val FIRST_INTERVAL_MS = 120
+        private const val ACCEL_STEP_MS = 8
+        private const val MIN_INTERVAL_MS = 35
     }
 }
