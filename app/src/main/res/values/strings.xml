@@ -1,0 +1,10 @@
+<resources>
+    <!-- 앱 이름 -->
+    <string name="app_name">한영 학습 키보드</string>
+    <!-- 폰 설정의 키보드 목록에 표시되는 이름 -->
+    <string name="ime_label">한영 학습 키보드</string>
+    <!-- 지원 언어 이름 -->
+    <string name="subtype_ko">한국어</string>
+    <!-- 빈 키보드 판에 보여줄 안내 문구 (마일스톤 2에서 실제 자판으로 교체) -->
+    <string name="placeholder_text">한영 학습 키보드 (준비 중)</string>
+</resources>

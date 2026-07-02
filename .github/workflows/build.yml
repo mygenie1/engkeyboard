@@ -1,0 +1,45 @@
+name: Build debug APK
+
+# 언제 자동 빌드를 돌릴지 정합니다.
+#  - push: 코드를 GitHub에 올릴 때마다 자동 실행
+#  - workflow_dispatch: GitHub 화면에서 손으로도 실행 가능
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1) 저장소의 코드를 빌드 서버로 가져옵니다.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) 앱 조립에 필요한 자바(JDK 17)를 설치합니다.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 3) 안드로이드 SDK(조립 부품)를 준비하고 라이선스에 동의합니다.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 4) 조립 도구(Gradle) 8.9 버전을 준비합니다.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # 5) 실제로 debug APK(설치 파일)를 만듭니다.
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      # 6) 만들어진 APK를 다운로드할 수 있게 Artifacts에 올립니다.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

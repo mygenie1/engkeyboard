@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    키보드의 세부 명찰입니다.
+    폰 설정의 키보드 목록에 어떤 언어를 지원하는지 등을 알려줍니다.
+    지금은 한국어(ko) 하나만 등록합니다.
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:supportsSwitchingToNextInputMethod="true">
+    <subtype
+        android:label="@string/subtype_ko"
+        android:imeSubtypeLocale="ko"
+        android:imeSubtypeMode="keyboard" />
+</input-method>

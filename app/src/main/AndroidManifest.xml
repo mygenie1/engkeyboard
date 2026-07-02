@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    앱의 신분증입니다.
+    * 인터넷 권한(uses-permission INTERNET)을 일부러 넣지 않았습니다.
+      그래서 이 앱은 기술적으로 네트워크를 사용할 수 없습니다.
+    * <service> 부분이 "이 앱은 키보드입니다" 라고 폰에 알려주는 핵심입니다.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:supportsRtl="true">
+
+        <service
+            android:name=".KoreanImeService"
+            android:label="@string/ime_label"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+    </application>
+
+</manifest>

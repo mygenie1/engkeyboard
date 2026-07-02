@@ -1,0 +1,18 @@
+# 조립 과정에서 자동으로 생기는 임시 파일들 — GitHub에 올릴 필요 없음
+.gradle/
+build/
+app/build/
+/captures
+.externalNativeBuild
+.cxx
+
+# 로컬 PC 전용 설정 파일 (사람마다 경로가 달라서 공유하지 않음)
+local.properties
+
+# 안드로이드 스튜디오/편집기 설정
+*.iml
+.idea/
+
+# OS가 만드는 잡파일
+.DS_Store
+Thumbs.db
