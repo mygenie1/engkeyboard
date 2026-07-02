@@ -10,6 +10,18 @@ android {
     // 앱을 조립할 때 참고하는 안드로이드 버전입니다.
     compileSdk = 34
 
+    // 서명 키 설정.
+    // 저장소에 고정된 debug 키(keystore/debug.keystore)를 사용합니다.
+    // 모든 빌드가 항상 같은 키로 서명되므로, 앱을 지우지 않고 덮어쓰기 업데이트가 됩니다.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         // 전 세계에서 안 겹치는 앱 고유 이름.
         applicationId = "com.hanyeong.keyboard"
@@ -24,9 +36,10 @@ android {
     }
 
     buildTypes {
-        // debug = 테스트용 설치 파일. 별도 서명 절차 없이 바로 폰에 설치할 수 있습니다.
+        // debug = 테스트용 설치 파일. 위에서 정한 고정 debug 키로 서명합니다.
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

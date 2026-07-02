@@ -7,6 +7,10 @@ on:
   push:
   workflow_dispatch:
 
+# 아래 단계에서 고정 서명 키를 저장소에 저장(커밋)할 수 있도록 쓰기 권한을 줍니다.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,9 +26,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 3) 안드로이드 SDK(조립 부품)를 준비하고 라이선스에 동의합니다.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # 3) 고정된 debug 서명 키를 준비합니다.
+      #    - 저장소에 키가 아직 없으면: 이번에 한 번 만들어서 저장소에 저장(커밋)합니다.
+      #    - 이미 있으면: 그대로 사용합니다.
+      #    이렇게 하면 이후 모든 빌드가 '항상 같은 키'로 서명되어,
+      #    앱을 지우지 않고 덮어쓰기 업데이트가 됩니다.
+      - name: Ensure fixed debug keystore
+        run: |
+          if [ ! -f keystore/debug.keystore ]; then
+            echo "고정 debug 키가 없어 새로 만듭니다."
+            mkdir -p keystore
+            keytool -genkeypair -v \
+              -keystore keystore/debug.keystore \
+              -storetype PKCS12 \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add keystore/debug.keystore
+            git commit -m "Add fixed debug keystore for stable signing"
+            git push
+            echo "고정 debug 키를 저장소에 저장했습니다."
+          else
+            echo "이미 고정 debug 키가 있습니다. 그대로 사용합니다."
+          fi
 
       # 4) 조립 도구(Gradle) 8.9 버전을 준비합니다.
       - name: Set up Gradle
@@ -32,7 +60,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # 5) 실제로 debug APK(설치 파일)를 만듭니다.
+      # 5) 실제로 debug APK(설치 파일)를 만듭니다. (위에서 만든 고정 키로 서명됨)
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
 
