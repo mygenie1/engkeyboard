@@ -59,6 +59,9 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         setBackgroundColor(colorBoard)
         setPadding(dp(3f), dp(6f), dp(3f), dp(8f))
 
+        // 맨 윗줄: 숫자 1234567890 (항상 표시)
+        addView(buildNumberRow())
+
         // 1번째 줄: ㅂㅈㄷㄱㅅ ㅛㅕㅑㅐㅔ
         addView(buildCharRow(listOf(
             CharKey("ㅂ", "ㅃ"), CharKey("ㅈ", "ㅉ"), CharKey("ㄷ", "ㄸ"),
@@ -81,6 +84,17 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
         // 4번째 줄: [쉼표] [스페이스] [마침표] [엔터]
         addView(buildRow4())
+    }
+
+    /** 숫자 줄(1~0)을 만듭니다. 숫자는 조합 대상이 아니라 일반 글자로 바로 입력됩니다. */
+    private fun buildNumberRow(): View {
+        val row = rowContainer(44f)
+        for (n in listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")) {
+            val tv = makeKey(n, colorKey, colorKeyPressed)
+            tv.setOnClickListener { listener?.onText(n) }
+            row.addView(tv, keyParams(1f))
+        }
+        return row
     }
 
     /** 자모 키들로만 이루어진 한 줄을 만듭니다. */
@@ -157,10 +171,10 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     // ── 화면 부품 만들기 도우미들 ────────────────────────────────────
 
-    private fun rowContainer(): LinearLayout {
+    private fun rowContainer(heightDp: Float = 52f): LinearLayout {
         val row = LinearLayout(context)
         row.orientation = HORIZONTAL
-        val lp = LayoutParams(LayoutParams.MATCH_PARENT, dp(52f))
+        val lp = LayoutParams(LayoutParams.MATCH_PARENT, dp(heightDp))
         lp.topMargin = dp(3f)
         row.layoutParams = lp
         return row
