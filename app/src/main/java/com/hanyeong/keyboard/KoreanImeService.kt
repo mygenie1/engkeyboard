@@ -1,5 +1,6 @@
 package com.hanyeong.keyboard
 
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.view.KeyEvent
 import android.view.View
@@ -40,6 +41,13 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
     override fun onFinishInput() {
         super.onFinishInput()
         automaton.reset()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 세로↔가로 회전 등으로 방향이 바뀌면, 자판을 새로 만들어
+        // 그 방향에 맞는 키 높이로 다시 그립니다.
+        setInputView(onCreateInputView())
     }
 
     // ── 자판에서 오는 신호들 ─────────────────────────────────────────

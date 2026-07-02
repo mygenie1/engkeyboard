@@ -2,11 +2,15 @@ package com.hanyeong.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -46,6 +50,17 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private fun dp(v: Float): Int = (v * density).toInt()
     private fun sp(v: Float): Float = v
 
+    // 지금 화면이 가로 모드인지 확인합니다.
+    private val isLandscape =
+        resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    // 키 높이: 가로 모드에서는 화면이 낮으므로 훨씬 작게 잡습니다.
+    private val charRowH = if (isLandscape) 34f else 52f   // 자모 줄 높이(dp)
+    private val numRowH = if (isLandscape) 28f else 44f    // 숫자 줄 높이(dp)
+
+    // 백스페이스 '꾹 누르기'용 타이머. 화면이 사라질 때 확실히 멈추도록 하나만 둡니다.
+    private val repeatHandler = Handler(Looper.getMainLooper())
+
     // 색상 (은은한 회색 배경 + 흰 글쇠)
     private val colorBoard = Color.parseColor("#D5D8DE")
     private val colorKey = Color.parseColor("#FFFFFF")
@@ -57,7 +72,9 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         setBackgroundColor(colorBoard)
-        setPadding(dp(3f), dp(6f), dp(3f), dp(8f))
+        // 가로 모드에서는 위아래 여백도 줄여 전체 높이를 더 낮춥니다.
+        val vPad = if (isLandscape) 3f else 6f
+        setPadding(dp(3f), dp(vPad), dp(3f), dp(vPad + 2f))
 
         // 맨 윗줄: 숫자 1234567890 (항상 표시)
         addView(buildNumberRow())
@@ -88,7 +105,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     /** 숫자 줄(1~0)을 만듭니다. 숫자는 조합 대상이 아니라 일반 글자로 바로 입력됩니다. */
     private fun buildNumberRow(): View {
-        val row = rowContainer(44f)
+        val row = rowContainer(numRowH)
         for (n in listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")) {
             val tv = makeKey(n, colorKey, colorKeyPressed)
             tv.setOnClickListener { listener?.onText(n) }
@@ -99,7 +116,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     /** 자모 키들로만 이루어진 한 줄을 만듭니다. */
     private fun buildCharRow(keys: List<CharKey>, sideSpacerWeight: Float = 0f): View {
-        val row = rowContainer()
+        val row = rowContainer(charRowH)
         if (sideSpacerWeight > 0f) row.addView(spacer(sideSpacerWeight))
         for (k in keys) {
             val tv = makeKey(k.normal, colorKey, colorKeyPressed)
@@ -112,7 +129,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun buildRow3(): View {
-        val row = rowContainer()
+        val row = rowContainer(charRowH)
 
         val shift = makeKey("⇧", colorSpecial, colorSpecialPressed)
         shift.setOnClickListener { toggleShift() }
@@ -126,14 +143,15 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             row.addView(tv, keyParams(1f))
         }
 
+        // 지우기: 짧게 누르면 1글자, 꾹 누르면 점점 빨라지는 연속 삭제.
         val back = makeKey("⌫", colorSpecial, colorSpecialPressed)
-        back.setOnClickListener { listener?.onBackspace() }
+        attachRepeatingTouch(back) { listener?.onBackspace() }
         row.addView(back, keyParams(1.5f))
         return row
     }
 
     private fun buildRow4(): View {
-        val row = rowContainer()
+        val row = rowContainer(charRowH)
 
         val comma = makeKey(",", colorSpecial, colorSpecialPressed)
         comma.setOnClickListener { listener?.onText(",") }
@@ -167,6 +185,51 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         for ((tv, k) in charKeys) {
             tv.text = if (on && k.shifted != null) k.shifted else k.normal
         }
+    }
+
+    /**
+     * '꾹 누르기' 반복 입력을 붙입니다. (백스페이스용)
+     *  - 누르는 순간 1번 실행
+     *  - 약 0.4초 뒤부터 반복 시작
+     *  - 반복할수록 간격이 짧아져 점점 빨라짐
+     *  - 손을 떼거나 손가락이 키 밖으로 나가면 즉시 멈춤
+     * 삼성 키보드/Gboard의 표준 동작과 같습니다.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun attachRepeatingTouch(view: View, action: () -> Unit) {
+        var repeatCount = 0
+        lateinit var repeater: Runnable
+        repeater = Runnable {
+            action()
+            repeatCount++
+            // 반복 횟수가 늘수록 간격을 줄여 가속시키되, 최소 간격 아래로는 안 내려갑니다.
+            val interval = (FIRST_INTERVAL_MS - repeatCount * ACCEL_STEP_MS)
+                .coerceAtLeast(MIN_INTERVAL_MS)
+            repeatHandler.postDelayed(repeater, interval.toLong())
+        }
+        view.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.isPressed = true
+                    repeatCount = 0
+                    action()                                   // 즉시 1번 삭제
+                    repeatHandler.postDelayed(repeater, HOLD_DELAY_MS)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    repeatHandler.removeCallbacks(repeater)     // 즉시 멈춤
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    // 화면(자판)이 사라질 때, 혹시 돌고 있던 반복 삭제를 확실히 멈춥니다.
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        repeatHandler.removeCallbacksAndMessages(null)
     }
 
     // ── 화면 부품 만들기 도우미들 ────────────────────────────────────
@@ -216,5 +279,13 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             addState(intArrayOf(android.R.attr.state_pressed), round(pressedColor))
             addState(intArrayOf(), round(normalColor))
         }
+    }
+
+    companion object {
+        // 백스페이스 '꾹 누르기' 반복 타이밍(밀리초)
+        private const val HOLD_DELAY_MS = 400L     // 누른 뒤 반복이 시작되기까지의 시간
+        private const val FIRST_INTERVAL_MS = 120  // 반복 시작 직후의 간격
+        private const val ACCEL_STEP_MS = 8        // 반복할 때마다 줄어드는 간격(가속)
+        private const val MIN_INTERVAL_MS = 35     // 가장 빠를 때의 간격(하한)
     }
 }
