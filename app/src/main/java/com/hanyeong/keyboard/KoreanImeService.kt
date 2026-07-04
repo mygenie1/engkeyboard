@@ -115,7 +115,19 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         keyboardView.hideCard()
         finalizeComposing(ic)
         ic.commitText(text, 1)
-        clearWordTracking()  // 숫자/기호는 단어 경계로 취급
+        clearWordTracking()  // 영문/숫자/기호는 단어 경계로 취급 → 추천 비움
+    }
+
+    /**
+     * 한/영·기호판 전환 직전에 호출됩니다.
+     * 조합 중이던 한글을 '확정'해 입력창에서 사라지지 않게 하고,
+     * 학습용 단어 추적도 초기화합니다.
+     */
+    override fun onModeSwitch() {
+        val ic = currentInputConnection ?: return
+        keyboardView.hideCard()
+        finalizeComposing(ic)   // automaton.flush() + finishComposingText()
+        clearWordTracking()
     }
 
     // ── 추천 갱신 ────────────────────────────────────────────────────
