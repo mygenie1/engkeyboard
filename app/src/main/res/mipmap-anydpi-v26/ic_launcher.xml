@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 적응형 아이콘(안드로이드 8.0+): 파랑 배경 + 흰 말풍선("한→A") 전경.
+     런처가 기기별 모양(원/둥근사각형 등)으로 알아서 잘라 보여 줍니다. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_bg" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

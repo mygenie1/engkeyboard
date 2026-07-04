@@ -1,0 +1,3 @@
+# 생성 산출물은 커밋하지 않습니다. 최종 아이콘은 app/src/main/res/mipmap-* 에 있습니다.
+# 스크립트(make_icon.ps1, make_res_icons.ps1, build_proof.js)만 버전 관리합니다.
+out/
