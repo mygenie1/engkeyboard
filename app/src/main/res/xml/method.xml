@@ -5,6 +5,7 @@
     지금은 한국어(ko) 하나만 등록합니다.
 -->
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.hanyeong.keyboard.SettingsActivity"
     android:supportsSwitchingToNextInputMethod="true">
     <subtype
         android:label="@string/subtype_ko"

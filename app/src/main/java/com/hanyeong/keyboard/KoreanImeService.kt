@@ -41,9 +41,13 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         dictionary = DictionaryDb(this).loadAll()
     }
 
+    // 마지막으로 자판을 그릴 때 쓴 높이 설정. 설정이 바뀌면 다시 그립니다.
+    private var appliedHeight: String? = null
+
     override fun onCreateInputView(): View {
         keyboardView = KoreanKeyboardView(this)
         keyboardView.listener = this
+        appliedHeight = Settings.height(this)
         return keyboardView
     }
 
@@ -51,6 +55,14 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         super.onStartInput(info, restarting)
         resetAll()
         currentInputConnection?.finishComposingText()
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        // 설정 화면에서 '키보드 높이'를 바꿨다면 새 높이로 자판을 다시 그립니다.
+        if (::keyboardView.isInitialized && appliedHeight != Settings.height(this)) {
+            setInputView(onCreateInputView())
+        }
     }
 
     override fun onFinishInput() {
@@ -137,6 +149,11 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
      * 추천 바에 영어 단어(최대 3개)를 띄웁니다.
      */
     private fun updateSuggestions() {
+        // 설정에서 추천 바를 끄면 항상 빈 상태로 둡니다. (일반 키보드처럼 동작)
+        if (!Settings.suggestionsEnabled(this)) {
+            keyboardView.showSuggestions(emptyList())
+            return
+        }
         val word = committedWord.toString() + automaton.composing()
         val entries = if (word.isEmpty()) emptyList()
         else (dictionary[word] ?: emptyList()).take(MAX_SUGGESTIONS)

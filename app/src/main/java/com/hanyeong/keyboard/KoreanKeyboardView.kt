@@ -6,10 +6,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -81,10 +83,16 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private val isLandscape =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 키/바 높이: 가로 모드에서는 더 낮게
-    private val charRowH = if (isLandscape) 34f else 52f
-    private val numRowH = if (isLandscape) 28f else 44f
-    private val suggestionBarH = if (isLandscape) 34f else 46f
+    // 키/바 높이: 가로 모드에서는 더 낮게. 설정의 '키보드 높이'(낮음/보통/높음)를 곱함.
+    private val heightScale = Settings.heightScale(context)
+    private val charRowH = (if (isLandscape) 34f else 52f) * heightScale
+    private val numRowH = (if (isLandscape) 28f else 44f) * heightScale
+    private val suggestionBarH = if (isLandscape) 34f else 46f   // 추천 바는 고정 높이
+
+    // 키 입력 피드백(소리/진동) 설정값을 만들 때 한 번 읽어 둡니다.
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val soundOn = Settings.soundEnabled(context)
+    private val vibrateOn = Settings.vibrationEnabled(context)
 
     private val repeatHandler = Handler(Looper.getMainLooper())
 
@@ -654,6 +662,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     v.isPressed = true
+                    feedback(v)
                     repeatCount = 0
                     action()
                     repeatHandler.postDelayed(repeater, HOLD_DELAY_MS)
@@ -698,6 +707,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         return v
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun makeKey(label: String, normalColor: Int, pressedColor: Int): TextView {
         val tv = TextView(context)
         tv.text = label
@@ -707,7 +717,22 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         tv.isClickable = true
         tv.isFocusable = true
         tv.background = keyBackground(normalColor, pressedColor)
+        // 모든 키에 공통 피드백: 누르는 순간(ACTION_DOWN) 소리/진동. false를 돌려주어
+        // 원래의 클릭 처리는 그대로 진행되게 합니다. (백스페이스는 자체 터치리스너로 대체됨)
+        tv.setOnTouchListener { v, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) feedback(v)
+            false
+        }
         return tv
+    }
+
+    /** 키를 누를 때의 소리/진동 피드백. (설정에서 켠 것만 실행) */
+    private fun feedback(v: View) {
+        if (soundOn) audioManager?.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
+        if (vibrateOn) v.performHapticFeedback(
+            HapticFeedbackConstants.KEYBOARD_TAP,
+            HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+        )
     }
 
     private fun keyBackground(normalColor: Int, pressedColor: Int): StateListDrawable {

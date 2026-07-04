@@ -5,4 +5,10 @@
     <string name="ime_label">한영 학습 키보드</string>
     <!-- 지원 언어 이름 -->
     <string name="subtype_ko">한국어</string>
+
+    <!-- 설정 화면 -->
+    <string name="settings_title">한영 학습 키보드 설정</string>
+
+    <!-- 사전 출처·라이선스 (CC BY-SA 2.0 KR 필수 표시) -->
+    <string name="license_body">이 앱의 학습 사전 중 약 46,000개(2군) 단어는 국립국어원 「한국어기초사전」(krdict.korean.go.kr)의 공개 데이터를 가공한 것입니다.\n\n· 저작자: 국립국어원 (National Institute of Korean Language)\n· 라이선스: CC BY-SA 2.0 KR (저작자표시-동일조건변경허락)\n\n상업적 이용이 가능하며, 이 사전 데이터를 변형·재배포할 경우 동일한 라이선스를 따릅니다. 원본의 발음 음성 파일은 재배포가 제한되어 포함하지 않았습니다.\n\n1군(632개)은 자체 제작 항목입니다.</string>
 </resources>

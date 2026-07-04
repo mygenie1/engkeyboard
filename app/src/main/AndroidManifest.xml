@@ -12,6 +12,19 @@
         android:label="@string/app_name"
         android:supportsRtl="true">
 
+        <!-- 앱 아이콘을 누르면 열리는 설정 화면(= 홈 화면 진입점).
+             키보드 설정에서도 이 화면으로 연결됩니다(method.xml의 settingsActivity). -->
+        <activity
+            android:name=".SettingsActivity"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.DarkActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".KoreanImeService"
             android:label="@string/ime_label"
