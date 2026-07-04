@@ -134,7 +134,8 @@ class DictionaryDb(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, 
     companion object {
         private const val DB_NAME = "dictionary.db"
         // 사전 CSV를 추가/수정할 때마다 이 번호를 올립니다. (기존 설치본도 새 단어로 갱신됨)
-        private const val DB_VERSION = 2
+        //  v3: 국립국어원 한국어기초사전(krdict) 2군 약 46,000개 추가
+        private const val DB_VERSION = 3
         private const val ASSET_DIR = "dictionary"
     }
 }

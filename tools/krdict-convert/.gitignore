@@ -1,0 +1,5 @@
+# 내려받은 원본 XML과 변환 중간 산출물은 커밋하지 않습니다.
+# (최종 결과 CSV는 app/src/main/assets/dictionary/ 로 복사되어 그쪽에서 관리됩니다.)
+xml/
+out/
+*.xml

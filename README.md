@@ -6,6 +6,18 @@
 - 언어/기술: Kotlin, Android InputMethodService 기반 네이티브 키보드
 - 최소 안드로이드: 8.0 (minSdk 26)
 - 네트워크: **사용 안 함** (인터넷 권한 자체가 없음)
+- 학습 사전: 약 46,700개 (자체 632 + 국립국어원 한국어기초사전 46,108)
+
+## 학습 사전 출처
+
+이 앱의 사전은 2단 구조입니다.
+
+- **1군(632개):** 자체 제작 — 발음기호·예문 포함 풀 카드
+- **2군(약 46,000개):** 국립국어원 「한국어기초사전」(krdict.korean.go.kr) 공개 데이터 가공
+  — 영어 단어 + 뜻 간이 카드. **CC BY-SA 2.0 KR** 라이선스.
+
+전체 출처·라이선스 조건은 [`DICTIONARY_LICENSE.md`](DICTIONARY_LICENSE.md),
+데이터 재생성은 [`tools/krdict-convert/`](tools/krdict-convert/) 를 참고하세요.
 
 ## 개발 진행 상황
 

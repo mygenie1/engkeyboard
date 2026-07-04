@@ -321,10 +321,22 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     private fun openCard(e: DictEntry) {
         cardEnglish.text = e.english
-        cardPron.text = e.pronunciation
-        cardMeaning.text = "뜻 · ${e.meaning}"
-        cardExample.text = "예문 · ${e.example}"
+        // 2군(간이 카드)은 발음기호·예문이 없습니다. 빈 칸은 아예 숨겨서
+        // 카드가 휑하게 비어 보이지 않도록 합니다.
+        setOptionalLine(cardPron, e.pronunciation, "")
+        setOptionalLine(cardMeaning, e.meaning, "뜻 · ")
+        setOptionalLine(cardExample, e.example, "예문 · ")
         cardView.visibility = VISIBLE
+    }
+
+    /** 값이 있으면 접두어를 붙여 보여 주고, 비어 있으면 그 줄을 숨깁니다. */
+    private fun setOptionalLine(tv: TextView, value: String, prefix: String) {
+        if (value.isBlank()) {
+            tv.visibility = GONE
+        } else {
+            tv.visibility = VISIBLE
+            tv.text = prefix + value
+        }
     }
 
     /** 학습 카드를 닫습니다. (다시 타이핑을 시작하면 호출됨) */
