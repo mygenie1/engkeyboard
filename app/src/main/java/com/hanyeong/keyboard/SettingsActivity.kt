@@ -87,7 +87,10 @@ class SettingsActivity : Activity() {
         val ver = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
-        card4.addView(rowLabel(getString(R.string.app_name), "버전 $ver"))
+        // 정식 명칭 + 슬로건, 그리고 버전.
+        card4.addView(rowLabel(getString(R.string.app_full_name), getString(R.string.app_slogan)))
+        card4.addView(divider())
+        card4.addView(rowLabel("버전", ver))
         root.addView(card4)
 
         setContentView(scroll)
