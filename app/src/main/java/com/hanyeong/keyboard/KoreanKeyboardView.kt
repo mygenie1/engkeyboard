@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.StateListDrawable
 import android.media.AudioManager
 import android.os.Handler
@@ -85,11 +87,15 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private val isLandscape =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // 키/바 높이: 가로 모드에서는 더 낮게. 설정의 '키보드 높이'(낮음/보통/높음)를 곱함.
-    private val heightScale = Settings.heightScale(context)
-    private val charRowH = (if (isLandscape) 34f else 52f) * heightScale
-    private val numRowH = (if (isLandscape) 28f else 44f) * heightScale
-    private val suggestionBarH = if (isLandscape) 34f else 46f   // 추천 바는 고정 높이
+    // 키/바 높이(dp): 설정의 '키보드 높이'(낮음40/보통46/높음52). 가로 모드는 30.
+    private val charRowH: Float = when {
+        isLandscape -> 30f
+        Settings.height(context) == Settings.HEIGHT_LOW -> 40f
+        Settings.height(context) == Settings.HEIGHT_HIGH -> 52f
+        else -> 46f
+    }
+    private val numRowH: Float = if (isLandscape) 26f else charRowH - 6f
+    private val suggestionBarH = if (isLandscape) 34f else 40f   // 추천 바 고정 높이
 
     // 키 입력 피드백(소리/진동) 설정값을 만들 때 한 번 읽어 둡니다.
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -98,31 +104,45 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     private val repeatHandler = Handler(Looper.getMainLooper())
 
-    // 색상
-    private val colorBoard = Color.parseColor("#D5D8DE")
-    private val colorKey = Color.parseColor("#FFFFFF")
-    private val colorKeyPressed = Color.parseColor("#C7CBD1")
-    private val colorSpecial = Color.parseColor("#B9BEC7")
-    private val colorSpecialPressed = Color.parseColor("#9AA0AB")
-    private val colorText = Color.parseColor("#1C1E21")
-    private val colorAccent = Color.parseColor("#1A5FB4")       // 활성 Shift 배경
-    private val colorAccentPressed = Color.parseColor("#154C90")
-    private val colorChip = Color.parseColor("#FFFFFF")
-    private val colorChipText = Color.parseColor("#1A5FB4")
-    private val colorCardBg = Color.parseColor("#FFFFFF")
-    private val colorMeaning = Color.parseColor("#374151")
-    private val colorSub = Color.parseColor("#6B7280")
+    private val mediumTypeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+
+    // ── 색상 토큰: "Quiet Slate"(톤온톤 청회) 라이트/다크 2벌 (시스템 다크 모드를 따름) ──
+    private val isDark =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    private fun themed(light: String, dark: String): Int =
+        Color.parseColor(if (isDark) dark else light)
+
+    private val colorBoard = themed("#E9EDF2", "#14181D")          // bg (키보드 배경)
+    private val colorKey = themed("#FFFFFF", "#272E36")            // key (일반 키)
+    private val colorKeyPressed = themed("#D3DAE4", "#333C46")     // pressed (눌림)
+    private val colorText = themed("#202B36", "#E7EBF0")           // keyText
+    private val colorSpecial = themed("#DBE1E9", "#1D232A")        // fnBg (기능 키)
+    private val colorSpecialText = themed("#3E4C59", "#9AA6B4")    // fnText (기능 키 글자)
+    private val colorSpecialPressed = colorKeyPressed             // 기능 키 눌림도 공통 pressed
+    private val colorAccent = themed("#46698C", "#85A9CD")         // accent
+    private val colorAccentPressed = themed("#3A5578", "#6E8CAF")  // 활성 Shift 눌림(파생색)
+    private val colorChip = themed("#FFFFFF", "#272E36")           // chipBg
+    private val colorChipText = themed("#3E5F80", "#85A9CD")       // chipText
+    private val colorChipBorder = themed("#C7D2DF", "#3A434E")     // chipBorder (1dp)
+    private val colorCardBg = themed("#FFFFFF", "#1D232A")         // cardBg
+    private val colorSub = themed("#6B7889", "#8D99A8")            // sub (보조 텍스트)
+    private val colorDivider = themed("#E3E8EF", "#333C46")        // divider (카드 구분선)
+    private val colorMeaning = colorText                          // 품사·뜻 = keyText
+    private val colorKeyShadow = themed("#29000000", "#66000000")  // 키 하단 1dp 엣지(검정 16%/40%)
 
     // 추천 바와 학습 카드의 부품들
     private lateinit var suggestionScroll: HorizontalScrollView
     private lateinit var suggestionBar: LinearLayout
     private lateinit var keysContainer: LinearLayout   // 자판 본체(모드마다 다시 그림)
-    private lateinit var cardView: LinearLayout
+    private lateinit var cardView: FrameLayout         // 카드 스크림(바깥 탭 가로채기)
     private lateinit var cardScroll: android.widget.ScrollView  // 카드 내용 스크롤(높이 제한)
-    private lateinit var cardEnglish: TextView
-    private lateinit var cardPron: TextView
-    private lateinit var cardMeaning: TextView
-    private lateinit var cardExample: TextView
+    private lateinit var cardContext: TextView         // 좌상단 컨텍스트 라벨
+    private lateinit var cardEnglish: TextView         // 표제어
+    private lateinit var cardPron: TextView            // 발음기호
+    private lateinit var cardMeaning: TextView         // 품사·뜻 (역방향엔 영어·발음)
+    private lateinit var cardDivider: View             // 예문 위 구분선
+    private lateinit var cardExample: TextView         // 예문
 
     // 영어 QWERTY 배열
     private val enRow1 = "qwertyuiop"
@@ -176,11 +196,13 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
         // 2) 본체: 자판 + 카드(겹침)
         val body = FrameLayout(context)
+        body.clipChildren = false       // 카드 그림자가 잘리지 않도록
+        body.clipToPadding = false
 
         keysContainer = LinearLayout(context)
         keysContainer.orientation = VERTICAL
         val vPad = if (isLandscape) 3f else 6f
-        keysContainer.setPadding(dp(3f), dp(vPad), dp(3f), dp(vPad + 2f))
+        keysContainer.setPadding(dp(4f), dp(vPad), dp(4f), dp(vPad + 2f))   // 키보드 좌우 패딩 4dp
         body.addView(
             keysContainer,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
@@ -253,111 +275,165 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         val bar = LinearLayout(context)
         bar.orientation = HORIZONTAL
         bar.gravity = Gravity.CENTER_VERTICAL
-        bar.setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
+        bar.setPadding(dp(8f), 0, dp(8f), 0)   // 좌측 시작 여백 8dp
         return bar
     }
 
     /**
      * 추천 단어들을 추천 바에 표시합니다. (빈 목록이면 바를 비웁니다)
      *
-     * @param reverse 역방향(영→한) 추천이면 true. 칩에 '한글 단어'를 보여 줍니다.
-     *                (기본 한→영 추천은 false: 칩에 영어 단어)
+     * @param reverse 역방향(영→한) 추천이면 true. 칩에 '한글 단어'(+짧은 뜻)를
+     *                보여 줍니다. (기본 한→영 추천은 false: 칩에 영어 단어)
      */
     fun showSuggestions(entries: List<DictEntry>, reverse: Boolean = false) {
         suggestionBar.removeAllViews()
         for (e in entries) {
-            val chip = makeChip(if (reverse) e.korean else e.english)
-            chip.setOnClickListener { openCard(e) }
-            val lp = LayoutParams(LayoutParams.WRAP_CONTENT, dp(if (isLandscape) 26f else 34f))
-            lp.marginEnd = dp(6f)
+            val secondary = if (reverse) shortGloss(e) else null
+            val chip = makeChip(if (reverse) e.korean else e.english, secondary)
+            chip.setOnClickListener { openCard(e, reverse) }
+            val lp = LayoutParams(LayoutParams.WRAP_CONTENT, dp(if (isLandscape) 26f else 30f))
+            lp.marginEnd = dp(7f)   // 칩 간격 7dp
             suggestionBar.addView(chip, lp)
         }
         // 새 추천이 오면 항상 맨 왼쪽(첫 단어)부터 보이도록 스크롤을 되돌립니다.
         if (::suggestionScroll.isInitialized) suggestionScroll.scrollTo(0, 0)
     }
 
-    private fun makeChip(english: String): TextView {
-        val tv = TextView(context)
-        tv.text = english
-        tv.gravity = Gravity.CENTER
-        tv.setTextColor(colorChipText)
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-        tv.setPadding(dp(14f), 0, dp(14f), 0)
-        tv.isClickable = true
-        tv.background = keyBackground(colorChip, colorKeyPressed)
-        return tv
+    /** 역방향 칩의 보조 뜻: 표제어와 다르고 짧을 때만 (예: "명사"). */
+    private fun shortGloss(e: DictEntry): String? {
+        val m = e.meaning.trim()
+        return if (m.isNotEmpty() && m != e.korean && m.length <= 10) m else null
+    }
+
+    /** 추천 칩: 완전 라운드(반경 15) + 1dp 테두리. 필요 시 보조 뜻을 옆에 붙입니다. */
+    private fun makeChip(primary: String, secondary: String?): View {
+        val chip = LinearLayout(context)
+        chip.orientation = HORIZONTAL
+        chip.gravity = Gravity.CENTER_VERTICAL
+        chip.setPadding(dp(12f), 0, dp(12f), 0)   // 좌우 패딩 12dp
+        chip.isClickable = true
+        chip.background = chipBackground()
+
+        val main = TextView(context)
+        main.text = primary
+        main.setTextColor(colorChipText)
+        main.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        main.typeface = mediumTypeface
+        chip.addView(main)
+
+        if (secondary != null) {
+            val sub = TextView(context)
+            sub.text = secondary
+            sub.setTextColor(colorSub)
+            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            val lp = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            lp.marginStart = dp(6f)   // 단어와 6dp 간격
+            chip.addView(sub, lp)
+        }
+        return chip
+    }
+
+    private fun chipBackground(): StateListDrawable {
+        fun bg(color: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(15f).toFloat()
+            setColor(color)
+            setStroke(dp(1f), colorChipBorder)
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), bg(colorKeyPressed))
+            addState(intArrayOf(), bg(colorChip))
+        }
     }
 
     // ── 학습 카드 ───────────────────────────────────────────────────
 
-    private fun buildCardView(): LinearLayout {
-        // 바깥판: 자판을 덮는 불투명 판. 아무 곳이나 누르면 닫힙니다.
-        val card = LinearLayout(context)
-        card.orientation = VERTICAL
-        card.setBackgroundColor(colorCardBg)
-        card.isClickable = true
-        card.setOnClickListener { hideCard() }
+    private fun buildCardView(): FrameLayout {
+        // 스크림: 자판 위 전체를 덮어 '카드 밖 탭'을 가로채 카드를 닫습니다.
+        // (키 입력이 새어 나가지 않도록 전면을 덮되, 배경은 투명)
+        val scrim = FrameLayout(context)
+        scrim.isClickable = true
+        scrim.setOnClickListener { hideCard() }
+        scrim.clipChildren = false
+        scrim.clipToPadding = false
 
-        // 내용판: 실제 글자들. 세로 스크롤(cardScroll) 안에 넣어, 내용이 길어도
-        // 카드가 '키보드 높이'를 절대 넘지 않게 합니다. (넘치면 내부 스크롤)
+        // 패널: 둥근 모서리(10dp) + 그림자(elevation)로 떠 있는 카드.
+        val panel = LinearLayout(context)
+        panel.orientation = VERTICAL
+        panel.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(10f).toFloat()
+            setColor(colorCardBg)
+        }
+        panel.elevation = dp(6f).toFloat()   // 그림자 y4 blur16 근사
+
+        // 내용: 세로 스크롤 안에 담아, 길어도 카드가 자판 높이를 넘지 않게 합니다.
         val content = LinearLayout(context)
         content.orientation = VERTICAL
-        content.setPadding(dp(18f), dp(14f), dp(18f), dp(14f))
+        content.setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
 
-        // 윗줄: 단어 + 발음기호 + 닫기(✕)
-        val top = LinearLayout(context)
-        top.orientation = HORIZONTAL
-        top.gravity = Gravity.CENTER_VERTICAL
+        // 윗줄: 컨텍스트 라벨(좌) + 닫기 ✕(우, 터치 영역 넉넉히)
+        val topbar = LinearLayout(context)
+        topbar.orientation = HORIZONTAL
+        topbar.gravity = Gravity.CENTER_VERTICAL
+        cardContext = TextView(context)
+        cardContext.setTextColor(colorSub)
+        cardContext.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        topbar.addView(cardContext, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        val close = TextView(context)
+        close.text = "✕"
+        close.setTextColor(colorSub)
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        close.setPadding(dp(14f), dp(8f), dp(6f), dp(8f))
+        close.isClickable = true
+        close.setOnClickListener { hideCard() }
+        topbar.addView(close)
+        content.addView(topbar)
 
+        // 표제어 + 발음기호 (아래 정렬로 baseline 근사)
+        val headline = LinearLayout(context)
+        headline.orientation = HORIZONTAL
+        headline.gravity = Gravity.BOTTOM
         cardEnglish = TextView(context)
         cardEnglish.setTextColor(colorText)
         cardEnglish.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
         cardEnglish.setTypeface(cardEnglish.typeface, android.graphics.Typeface.BOLD)
-        top.addView(cardEnglish)
-
+        headline.addView(cardEnglish)
         cardPron = TextView(context)
-        cardPron.setTextColor(colorSub)
-        cardPron.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        cardPron.setTextColor(colorAccent)
+        cardPron.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         val pronLp = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
         pronLp.marginStart = dp(10f)
-        top.addView(cardPron, pronLp)
+        pronLp.bottomMargin = dp(2f)
+        headline.addView(cardPron, pronLp)
+        content.addView(headline)
 
-        val spacer = View(context)
-        top.addView(spacer, LayoutParams(0, 1, 1f))
-
-        val close = TextView(context)
-        close.text = "✕"
-        close.setTextColor(colorSub)
-        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-        close.setPadding(dp(8f), dp(2f), dp(4f), dp(2f))
-        close.isClickable = true
-        close.setOnClickListener { hideCard() }
-        top.addView(close)
-
-        content.addView(top)
-
-        // 뜻
+        // 품사·뜻 (역방향에선 영어 단어·발음)
         cardMeaning = TextView(context)
         cardMeaning.setTextColor(colorMeaning)
-        cardMeaning.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        cardMeaning.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         val meaningLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-        meaningLp.topMargin = dp(10f)
+        meaningLp.topMargin = dp(6f)
         content.addView(cardMeaning, meaningLp)
+
+        // 구분선 (예문이 없으면 숨김)
+        cardDivider = View(context)
+        cardDivider.setBackgroundColor(colorDivider)
+        val divLp = LayoutParams(LayoutParams.MATCH_PARENT, dp(1f))
+        divLp.topMargin = dp(10f)
+        divLp.bottomMargin = dp(10f)
+        content.addView(cardDivider, divLp)
 
         // 예문
         cardExample = TextView(context)
-        cardExample.setTextColor(colorSub)
-        cardExample.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        val exLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-        exLp.topMargin = dp(6f)
-        content.addView(cardExample, exLp)
+        cardExample.setTextColor(colorText)
+        cardExample.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        cardExample.setLineSpacing(0f, 1.5f)   // 줄간 1.5
+        content.addView(cardExample, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        // 광고 자리(현재 미사용): 내용 맨 아래에 '배너 크기 영역만' 확보해 둡니다.
-        // 지금은 광고 SDK도, 인터넷 권한도 넣지 않습니다. 기본은 접혀(높이 0)
-        // 보이지 않으며, AD_PLACEHOLDER_ENABLED = true 하나만 바꾸면 펼쳐집니다.
+        // 광고 자리(현재 미사용, 기본 높이 0). 켜지면 내용 하단에 50dp 배너 자리.
         content.addView(buildAdSlot(), adSlotParams())
 
-        // 내용을 '키보드 높이 이내로 제한되는' 스크롤에 담아 카드에 올립니다.
         cardScroll = BoundedCardScroll(context)
         cardScroll.addView(
             content,
@@ -366,9 +442,17 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
                 FrameLayout.LayoutParams.WRAP_CONTENT
             )
         )
-        card.addView(cardScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        panel.addView(cardScroll, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
-        return card
+        // 패널을 스크림 위에 6dp 여백 + 상단 정렬로 얹습니다.
+        val panelLp = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        panelLp.setMargins(dp(6f), dp(6f), dp(6f), dp(6f))
+        panelLp.gravity = Gravity.TOP
+        scrim.addView(panel, panelLp)
+
+        return scrim
     }
 
     /**
@@ -380,11 +464,13 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private inner class BoundedCardScroll(context: Context) : android.widget.ScrollView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val keyboardH = keysContainer.height
+            // 카드 패널의 상·하 여백(6+6dp) 몫을 빼, 패널까지 포함해도 자판 높이 이내로.
+            val avail = keyboardH - dp(12f)
             val bounded = if (keyboardH > 0) {
                 val incoming = if (View.MeasureSpec.getMode(heightMeasureSpec) == View.MeasureSpec.UNSPECIFIED)
                     Int.MAX_VALUE else View.MeasureSpec.getSize(heightMeasureSpec)
                 View.MeasureSpec.makeMeasureSpec(
-                    CardBounds.clamp(incoming, keyboardH), View.MeasureSpec.AT_MOST
+                    CardBounds.clamp(incoming, avail), View.MeasureSpec.AT_MOST
                 )
             } else {
                 heightMeasureSpec
@@ -426,15 +512,31 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         return lp
     }
 
-    private fun openCard(e: DictEntry) {
-        cardEnglish.text = e.english
-        // 2군(간이 카드)은 발음기호·예문이 없습니다. 빈 칸은 아예 숨겨서
-        // 카드가 휑하게 비어 보이지 않도록 합니다.
-        setOptionalLine(cardPron, e.pronunciation, "")
-        setOptionalLine(cardMeaning, e.meaning, "뜻 · ")
-        setOptionalLine(cardExample, e.example, "예문 · ")
+    /**
+     * 학습 카드를 엽니다.
+     *  - 한→영(reverse=false): 영어를 표제어 + 발음기호, 아래에 한글 뜻.
+     *  - 영→한(reverse=true) : 한글을 표제어, 아래에 영어 단어·발음.
+     * 2군(간이) 항목은 발음·예문 줄을 뷰째 숨겨(GONE) 빈 줄 없이 축소합니다.
+     */
+    private fun openCard(e: DictEntry, reverse: Boolean = false) {
+        val input = if (reverse) e.english else e.korean
+        cardContext.text = (if (reverse) "영→한" else "한→영") + " · 방금 입력: " + input
+
+        if (reverse) {
+            cardEnglish.text = e.korean
+            setOptionalLine(cardPron, "", "")   // 표제어(한글) 옆 발음 자리 비움
+            val eng = e.english + if (e.pronunciation.isNotBlank()) "  " + e.pronunciation else ""
+            setOptionalLine(cardMeaning, eng, "")
+        } else {
+            cardEnglish.text = e.english
+            setOptionalLine(cardPron, e.pronunciation, "")
+            setOptionalLine(cardMeaning, e.meaning, "")
+        }
+        setOptionalLine(cardExample, e.example, "")
+        cardDivider.visibility = if (e.example.isBlank()) GONE else VISIBLE
+
         cardView.visibility = VISIBLE
-        cardScroll.scrollTo(0, 0)   // 항상 맨 위(단어)부터 보이도록
+        cardScroll.scrollTo(0, 0)   // 항상 맨 위(표제어)부터 보이도록
     }
 
     /** 값이 있으면 접두어를 붙여 보여 주고, 비어 있으면 그 줄을 숨깁니다. */
@@ -457,7 +559,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private fun buildNumberRow(): View {
         val row = rowContainer(numRowH)
         for (n in listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")) {
-            val tv = makeKey(n, colorKey, colorKeyPressed)
+            val tv = makeKey(n, colorKey, colorKeyPressed, sizeSp = 16f)   // 숫자줄 16sp
             tv.setOnClickListener { listener?.onText(n) }
             row.addView(tv, keyParams(1f))
         }
@@ -474,9 +576,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         val row = rowContainer(charRowH)
 
         if (mode == Mode.SYMBOL) {
-            val back = makeKey(if (lastLetterMode == Mode.KOREAN) "가" else "ABC",
-                colorSpecial, colorSpecialPressed)
-            back.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            val back = makeFnKey(if (lastLetterMode == Mode.KOREAN) "가" else "ABC", 12f)
             back.setOnClickListener { toggleSymbols() }
             row.addView(back, keyParams(2f))
 
@@ -485,13 +585,11 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             addPeriod(row, 1f)
             addEnter(row, 2f)
         } else {
-            val sym = makeKey("?123", colorSpecial, colorSpecialPressed)
-            sym.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            val sym = makeFnKey("?123", 12f)
             sym.setOnClickListener { toggleSymbols() }
             row.addView(sym, keyParams(1.5f))
 
-            val lang = makeKey("한/영", colorSpecial, colorSpecialPressed)
-            lang.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            val lang = makeFnKey("한/영", 12f)
             lang.setOnClickListener { toggleLanguage() }
             row.addView(lang, keyParams(1.5f))
 
@@ -504,14 +602,15 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         return row
     }
 
+    // 쉼표·마침표는 기능 키 목록에 없으므로 일반 키(흰 배경)로 둡니다.
     private fun addComma(row: LinearLayout, weight: Float) {
-        val comma = makeKey(",", colorSpecial, colorSpecialPressed)
+        val comma = makeKey(",", colorKey, colorKeyPressed)
         comma.setOnClickListener { listener?.onText(",") }
         row.addView(comma, keyParams(weight))
     }
 
     private fun addPeriod(row: LinearLayout, weight: Float) {
-        val period = makeKey(".", colorSpecial, colorSpecialPressed)
+        val period = makeKey(".", colorKey, colorKeyPressed)
         period.setOnClickListener { listener?.onText(".") }
         row.addView(period, keyParams(weight))
     }
@@ -523,14 +622,14 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun addEnter(row: LinearLayout, weight: Float) {
-        val enter = makeKey("⏎", colorSpecial, colorSpecialPressed)
+        val enter = makeFnKey("⏎", 19f)
         enter.setOnClickListener { listener?.onEnter() }
         row.addView(enter, keyParams(weight))
     }
 
     /** 왼쪽 특수키(Shift/기호더보기) + 가운데 키들 + 오른쪽 백스페이스 형태의 줄. */
     private fun addBackspace(row: LinearLayout, weight: Float) {
-        val back = makeKey("⌫", colorSpecial, colorSpecialPressed)
+        val back = makeFnKey("⌫", 19f)
         attachRepeatingTouch(back) { listener?.onBackspace() }
         row.addView(back, keyParams(weight))
     }
@@ -554,7 +653,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
         // 3번째 줄: Shift + 자모 7개 + 백스페이스
         val row = rowContainer(charRowH)
-        val shift = makeKey("⇧", colorSpecial, colorSpecialPressed)
+        val shift = makeFnKey("⇧", 19f)
         shift.setOnClickListener { onShiftKey() }
         shiftKey = shift
         row.addView(shift, keyParams(1.5f))
@@ -598,7 +697,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
         // 3번째 줄: Shift + z x c v b n m + 백스페이스
         val row = rowContainer(charRowH)
-        val shift = makeKey("⇧", colorSpecial, colorSpecialPressed)
+        val shift = makeFnKey("⇧", 19f)
         shift.setOnClickListener { onShiftKey() }
         shiftKey = shift
         row.addView(shift, keyParams(1.5f))
@@ -655,8 +754,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
         // 3번째 줄: [기호 더보기(1/2 전환)] + 7칸 + 백스페이스
         val row = rowContainer(charRowH)
-        val more = makeKey(if (symbolPage == 0) "1/2" else "2/2", colorSpecial, colorSpecialPressed)
-        more.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        val more = makeFnKey(if (symbolPage == 0) "1/2" else "2/2", 12f)
         more.setOnClickListener { toggleSymbolPage() }
         row.addView(more, keyParams(1.5f))
         for (s in page[2]) {
@@ -722,7 +820,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             }
             else -> {
                 sk.text = "⇧"
-                sk.setTextColor(colorText)
+                sk.setTextColor(colorSpecialText)
                 sk.background = keyBackground(colorSpecial, colorSpecialPressed)
             }
         }
@@ -790,15 +888,15 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         val row = LinearLayout(context)
         row.orientation = HORIZONTAL
         val lp = LayoutParams(LayoutParams.MATCH_PARENT, dp(heightDp))
-        lp.topMargin = dp(3f)
+        lp.topMargin = dp(7f)   // 세로 키 간격 7dp
         row.layoutParams = lp
         return row
     }
 
     private fun keyParams(weight: Float): LayoutParams {
         val lp = LayoutParams(0, LayoutParams.MATCH_PARENT, weight)
-        lp.leftMargin = dp(2f)
-        lp.rightMargin = dp(2f)
+        lp.leftMargin = dp(2.5f)   // 가로 키 간격 5dp (양쪽 2.5)
+        lp.rightMargin = dp(2.5f)
         return lp
     }
 
@@ -808,13 +906,25 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         return v
     }
 
+    /** 기능 키(⇧ ⌫ ?123 한/영 ⏎ 가/ABC 1/2 …): fnBg 배경 + fnText 글자. */
+    private fun makeFnKey(label: String, sizeSp: Float): TextView =
+        makeKey(label, colorSpecial, colorSpecialPressed, colorSpecialText, sizeSp, medium = true)
+
     @SuppressLint("ClickableViewAccessibility")
-    private fun makeKey(label: String, normalColor: Int, pressedColor: Int): TextView {
+    private fun makeKey(
+        label: String,
+        normalColor: Int,
+        pressedColor: Int,
+        textColor: Int = colorText,
+        sizeSp: Float = 18f,
+        medium: Boolean = false,
+    ): TextView {
         val tv = TextView(context)
         tv.text = label
         tv.gravity = Gravity.CENTER
-        tv.setTextColor(colorText)
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+        tv.setTextColor(textColor)
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+        if (medium) tv.typeface = mediumTypeface
         tv.isClickable = true
         tv.isFocusable = true
         tv.background = keyBackground(normalColor, pressedColor)
@@ -836,15 +946,25 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         )
     }
 
+    /**
+     * 키 배경. 모서리 반경 7dp에, 아래쪽에 은은한 1dp 그림자 엣지를 넣습니다.
+     * (애니메이션 없이 눌리면 즉시 pressed 색으로 교체 — 입력 지연 0 원칙)
+     */
     private fun keyBackground(normalColor: Int, pressedColor: Int): StateListDrawable {
         fun round(color: Int) = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(7f).toFloat()
             setColor(color)
         }
+        // [아래=그림자 색] 위에 [키 색]을 1dp 위로 얹어, 바닥에 1dp 그림자만 노출.
+        fun layered(color: Int): Drawable {
+            val ld = LayerDrawable(arrayOf(round(colorKeyShadow), round(color)))
+            ld.setLayerInset(1, 0, 0, 0, dp(1f))
+            return ld
+        }
         return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), round(pressedColor))
-            addState(intArrayOf(), round(normalColor))
+            addState(intArrayOf(android.R.attr.state_pressed), layered(pressedColor))
+            addState(intArrayOf(), layered(normalColor))
         }
     }
 
