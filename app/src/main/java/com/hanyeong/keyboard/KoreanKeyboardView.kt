@@ -344,7 +344,49 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         exLp.topMargin = dp(6f)
         card.addView(cardExample, exLp)
 
+        // 남는 세로 공간을 채워, 아래 '광고 자리'를 카드 맨 밑에 밀착시킵니다.
+        card.addView(View(context), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+
+        // 광고 자리(현재 미사용): 카드 하단에 '배너 크기 영역만' 확보해 둡니다.
+        // 지금은 광고 SDK도, 인터넷 권한도 넣지 않습니다. 기본은 접혀(높이 0)
+        // 보이지 않으며, 아래 AD_PLACEHOLDER_ENABLED = true 하나만 바꾸면
+        // 영역이 펼쳐집니다. (실제 배너는 그때 SDK를 붙여 이 영역에 넣습니다.)
+        card.addView(buildAdSlot(), adSlotParams())
+
         return card
+    }
+
+    /**
+     * 학습 카드 하단 광고 자리. 지금은 '빈 자리'일 뿐이라 아무 네트워크·SDK도
+     * 쓰지 않습니다. 켜졌을 때만 옅은 배경과 '광고 자리' 안내를 보여 줍니다.
+     */
+    private fun buildAdSlot(): View {
+        val slot = FrameLayout(context)
+        slot.visibility = if (AD_PLACEHOLDER_ENABLED) VISIBLE else GONE
+        if (AD_PLACEHOLDER_ENABLED) {
+            slot.setBackgroundColor(Color.parseColor("#EDEFF2"))
+            val label = TextView(context)
+            label.text = "광고 자리"
+            label.gravity = Gravity.CENTER
+            label.setTextColor(colorSub)
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            slot.addView(
+                label,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+        return slot
+    }
+
+    /** 광고 자리 크기: 켜지면 표준 배너(폭 전체 × 50dp), 꺼지면 높이 0. */
+    private fun adSlotParams(): LayoutParams {
+        val h = if (AD_PLACEHOLDER_ENABLED) dp(50f) else 0
+        val lp = LayoutParams(LayoutParams.MATCH_PARENT, h)
+        if (AD_PLACEHOLDER_ENABLED) lp.topMargin = dp(10f)
+        return lp
     }
 
     private fun openCard(e: DictEntry) {
@@ -774,5 +816,10 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         private const val ACCEL_STEP_MS = 8
         private const val MIN_INTERVAL_MS = 35
         private const val DOUBLE_TAP_MS = 320L
+
+        // 학습 카드 하단 '광고 자리'를 펼칠지 여부. 지금은 자리만 잡아 두고
+        // 끄기(false) 상태로 둡니다. 실제 배너 광고를 붙일 때 true로 바꾸면
+        // 됩니다. (true만으로는 광고가 뜨지 않습니다 — SDK·권한·심사가 별도 필요.)
+        private const val AD_PLACEHOLDER_ENABLED = false
     }
 }
