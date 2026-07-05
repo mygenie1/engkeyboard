@@ -84,7 +84,7 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         val step = automaton.press(jamo)
         applyStep(ic, step)
         committedWord.append(step.commit)
-        updateSuggestions()
+        refreshSuggestion()
     }
 
     override fun onBackspace() {
@@ -97,13 +97,18 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
                 ic.deleteSurroundingText(1, 0)
                 if (committedWord.isNotEmpty()) {
                     committedWord.deleteCharAt(committedWord.length - 1)
-                } else {
-                    // 단어 경계(공백 등)를 넘어 지웠으므로 추적을 초기화
-                    clearWordTracking()
                 }
+                // committedWord가 이미 비어 있으면 단어 경계를 넘어 지운 것 →
+                // 아래 검사에서 추천을 없앱니다.
             }
         }
-        updateSuggestions()
+        // 지금 추적 중인 단어가 완전히 비면(= 백스페이스로 단어 자체를 지움)
+        // 추천도 함께 없앱니다. 글자가 남아 있으면 추천을 다시 계산합니다.
+        if (committedWord.isEmpty() && automaton.composing().isEmpty()) {
+            clearSuggestions()
+        } else {
+            refreshSuggestion()
+        }
     }
 
     override fun onSpace() {
@@ -111,7 +116,7 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         keyboardView.hideCard()
         finalizeComposing(ic)
         ic.commitText(" ", 1)
-        clearWordTracking()
+        resetWordTracking()
     }
 
     override fun onEnter() {
@@ -119,7 +124,7 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         keyboardView.hideCard()
         finalizeComposing(ic)
         sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
-        clearWordTracking()
+        resetWordTracking()
     }
 
     override fun onText(text: String) {
@@ -127,7 +132,7 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         keyboardView.hideCard()
         finalizeComposing(ic)
         ic.commitText(text, 1)
-        clearWordTracking()  // 영문/숫자/기호는 단어 경계로 취급 → 추천 비움
+        resetWordTracking()  // 영문/숫자/기호/문장부호는 단어 경계로 취급
     }
 
     /**
@@ -139,29 +144,39 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         val ic = currentInputConnection ?: return
         keyboardView.hideCard()
         finalizeComposing(ic)   // automaton.flush() + finishComposingText()
-        clearWordTracking()
+        resetWordTracking()
     }
 
     // ── 추천 갱신 ────────────────────────────────────────────────────
 
     /**
-     * 지금 타이핑 중인 단어(확정 부분 + 조합 중 글자)가 사전에 정확히 있으면
-     * 추천 바에 영어 단어(최대 3개)를 띄웁니다.
+     * 추천 '유지' 규칙:
+     *  - 지금 타이핑 중인 단어(확정 부분 + 조합 중 글자)가 사전에 있으면
+     *    그 단어의 추천(최대 3개)으로 추천 바를 '교체'합니다.
+     *  - 사전에 없으면 아무것도 하지 않아, 직전에 띄운 추천을 '그대로 유지'합니다.
+     *    → 띄어쓰기·조사·문장부호를 쳐도 추천이 사라지지 않고,
+     *      다음 사전 단어가 새로 인식될 때 비로소 교체됩니다.
+     * (단어 자체를 백스페이스로 다 지우는 경우만 onBackspace에서 추천을 없앱니다.)
      */
-    private fun updateSuggestions() {
+    private fun refreshSuggestion() {
         // 설정에서 추천 바를 끄면 항상 빈 상태로 둡니다. (일반 키보드처럼 동작)
         if (!Settings.suggestionsEnabled(this)) {
             keyboardView.showSuggestions(emptyList())
             return
         }
         val word = committedWord.toString() + automaton.composing()
-        val entries = if (word.isEmpty()) emptyList()
-        else (dictionary[word] ?: emptyList()).take(MAX_SUGGESTIONS)
-        keyboardView.showSuggestions(entries)
+        if (word.isEmpty()) return
+        val entries = dictionary[word] ?: return   // 사전에 없음 → 직전 추천 유지
+        keyboardView.showSuggestions(entries.take(MAX_SUGGESTIONS))
     }
 
-    private fun clearWordTracking() {
+    /** 단어 경계를 만났을 때: 추적 중인 단어만 초기화하고 추천은 그대로 둡니다. */
+    private fun resetWordTracking() {
         committedWord.setLength(0)
+    }
+
+    /** 추천 바를 비웁니다. (단어를 백스페이스로 지웠거나 입력창이 바뀔 때) */
+    private fun clearSuggestions() {
         keyboardView.showSuggestions(emptyList())
     }
 
