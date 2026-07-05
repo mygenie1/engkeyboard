@@ -9,6 +9,7 @@ import android.view.inputmethod.InputConnection
 import com.hanyeong.keyboard.dict.Conjugation
 import com.hanyeong.keyboard.dict.DictEntry
 import com.hanyeong.keyboard.dict.DictionaryDb
+import com.hanyeong.keyboard.dict.EnglishLemma
 import com.hanyeong.keyboard.dict.ReverseIndex
 import com.hanyeong.keyboard.hangul.Back
 import com.hanyeong.keyboard.hangul.HangulAutomaton
@@ -39,6 +40,9 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
 
     // 지금 타이핑 중인 단어에서 '이미 확정된 부분'. (조합 중 글자는 automaton이 따로 가짐)
     private val committedWord = StringBuilder()
+
+    // 영어 모드에서 지금 타이핑 중인 영어 단어. (영→한 역방향 추천용)
+    private val typedEnglish = StringBuilder()
 
     override fun onCreate() {
         super.onCreate()
@@ -102,20 +106,21 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
             Back.Delete -> {
                 ic.finishComposingText()
                 ic.deleteSurroundingText(1, 0)
+                // 추적 중인 단어(한글 또는 영어)에서도 마지막 글자를 뗍니다.
                 if (committedWord.isNotEmpty()) {
                     committedWord.deleteCharAt(committedWord.length - 1)
+                } else if (typedEnglish.isNotEmpty()) {
+                    typedEnglish.deleteCharAt(typedEnglish.length - 1)
                 }
-                // committedWord가 이미 비어 있으면 단어 경계를 넘어 지운 것 →
+                // 둘 다 이미 비어 있으면 단어 경계를 넘어 지운 것 →
                 // 아래 검사에서 추천을 없앱니다.
             }
         }
         // 지금 추적 중인 단어가 완전히 비면(= 백스페이스로 단어 자체를 지움)
         // 추천도 함께 없앱니다. 글자가 남아 있으면 추천을 다시 계산합니다.
-        if (committedWord.isEmpty() && automaton.composing().isEmpty()) {
-            clearSuggestions()
-        } else {
-            refreshSuggestion()
-        }
+        val nothingTracked =
+            committedWord.isEmpty() && typedEnglish.isEmpty() && automaton.composing().isEmpty()
+        if (nothingTracked) clearSuggestions() else refreshSuggestion()
     }
 
     override fun onSpace() {
@@ -134,12 +139,24 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         resetWordTracking()
     }
 
+    /**
+     * 영어 글자(a~z)를 입력합니다. 입력창에 그대로 쓰면서,
+     * 지금 치는 '영어 단어'를 따로 모아 두었다가 역방향(영→한) 추천에 씁니다.
+     */
+    override fun onLetter(text: String) {
+        val ic = currentInputConnection ?: return
+        keyboardView.hideCard()
+        ic.commitText(text, 1)
+        typedEnglish.append(text)
+        refreshSuggestion()
+    }
+
     override fun onText(text: String) {
         val ic = currentInputConnection ?: return
         keyboardView.hideCard()
         finalizeComposing(ic)
         ic.commitText(text, 1)
-        resetWordTracking()  // 영문/숫자/기호/문장부호는 단어 경계로 취급
+        resetWordTracking()  // 숫자/기호/문장부호는 단어 경계로 취급
     }
 
     /**
@@ -171,16 +188,23 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
             keyboardView.showSuggestions(emptyList())
             return
         }
-        val word = committedWord.toString() + automaton.composing()
-        if (word.isEmpty()) return
+        // 지금 어떤 단어를 치고 있느냐에 따라 방향이 갈립니다.
+        //  - 한글을 치는 중이면  한 → 영  (기존)
+        //  - 영어를 치는 중이면  영 → 한  (역방향)
+        val korean = committedWord.toString() + automaton.composing()
+        if (korean.isNotEmpty()) { refreshKorean(korean); return }
+        val english = typedEnglish.toString()
+        if (english.isNotEmpty()) { refreshEnglish(english); return }
+        // 둘 다 비어 있으면 직전 추천을 그대로 둡니다.
+    }
 
-        // 1) 단어가 사전에 그대로 있으면 그 추천으로 교체.
+    /** 한 → 영: 한글 단어가 사전에 있으면(또는 활용형이면 원형으로) 영어 추천. */
+    private fun refreshKorean(word: String) {
         dictionary[word]?.let {
             keyboardView.showSuggestions(it.take(MAX_SUGGESTIONS))
             return
         }
-        // 2) 없으면 용언 활용형인지 살펴 원형(…다)을 복원해 봅니다.
-        //    (먹었어 → 먹다) 확신할 때만 그 원형의 추천으로 교체합니다.
+        // 용언 활용형이면 원형(…다)을 복원해, 확신할 때만 교체. (먹었어 → 먹다)
         val base = Conjugation.resolveBase(word) { dictionary.containsKey(it) }
         if (base != null) {
             dictionary[base]?.let {
@@ -188,12 +212,31 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
                 return
             }
         }
-        // 3) 사전에도 없고 원형 복원도 애매하면 직전 추천을 그대로 유지합니다.
+        // 사전에도 없고 원형 복원도 애매하면 직전 추천을 유지합니다.
     }
 
-    /** 단어 경계를 만났을 때: 추적 중인 단어만 초기화하고 추천은 그대로 둡니다. */
+    /** 영 → 한: 영어 단어를 역색인으로 찾고(또는 원형 복원해) 한글 추천. */
+    private fun refreshEnglish(word: String) {
+        val w = word.lowercase()
+        reverseIndex[w]?.let {
+            keyboardView.showSuggestions(it.take(MAX_SUGGESTIONS), reverse = true)
+            return
+        }
+        // 굴절형이면 원형(lemma)을 복원해, 확신할 때만 교체. (went → go)
+        val lemma = EnglishLemma.resolveLemma(w) { reverseIndex.containsKey(it) }
+        if (lemma != null) {
+            reverseIndex[lemma]?.let {
+                keyboardView.showSuggestions(it.take(MAX_SUGGESTIONS), reverse = true)
+                return
+            }
+        }
+        // 역색인에도 없고 원형 복원도 애매하면 직전 추천을 유지합니다.
+    }
+
+    /** 단어 경계를 만났을 때: 추적 중인 단어(한글·영어)만 초기화하고 추천은 그대로 둡니다. */
     private fun resetWordTracking() {
         committedWord.setLength(0)
+        typedEnglish.setLength(0)
     }
 
     /** 추천 바를 비웁니다. (단어를 백스페이스로 지웠거나 입력창이 바뀔 때) */
@@ -204,6 +247,7 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
     private fun resetAll() {
         automaton.reset()
         committedWord.setLength(0)
+        typedEnglish.setLength(0)
         if (::keyboardView.isInitialized) {
             keyboardView.setShifted(false)
             keyboardView.hideCard()

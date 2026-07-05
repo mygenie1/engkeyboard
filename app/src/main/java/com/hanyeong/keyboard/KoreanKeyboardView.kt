@@ -45,7 +45,8 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         fun onBackspace()        // 지우기
         fun onSpace()            // 띄어쓰기
         fun onEnter()            // 줄바꿈/전송
-        fun onText(text: String) // 영문/숫자/기호 등 그대로 확정되는 글자
+        fun onLetter(text: String) // 영어 글자 키(a~z). 영어 '단어'로 추적됨
+        fun onText(text: String) // 숫자/기호 등 단어 경계로 취급되는 글자
         /**
          * 한/영·기호판 전환 직전에 호출됩니다.
          * 조합 중이던 한글을 확정해 글자가 사라지지 않게 하는 것이 목적입니다.
@@ -257,12 +258,14 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     /**
      * 추천 단어들을 추천 바에 표시합니다. (빈 목록이면 바를 비웁니다)
-     * Service가 '단어를 다 쳤을 때' 호출합니다. (영어/기호 모드에서는 항상 비어 있음)
+     *
+     * @param reverse 역방향(영→한) 추천이면 true. 칩에 '한글 단어'를 보여 줍니다.
+     *                (기본 한→영 추천은 false: 칩에 영어 단어)
      */
-    fun showSuggestions(entries: List<DictEntry>) {
+    fun showSuggestions(entries: List<DictEntry>, reverse: Boolean = false) {
         suggestionBar.removeAllViews()
         for (e in entries) {
-            val chip = makeChip(e.english)
+            val chip = makeChip(if (reverse) e.korean else e.english)
             chip.setOnClickListener { openCard(e) }
             val lp = LayoutParams(LayoutParams.WRAP_CONTENT, dp(if (isLandscape) 26f else 34f))
             lp.marginEnd = dp(6f)
@@ -589,7 +592,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     private fun onLetterTapped(base: String) {
         val upper = shifted || capsLock
-        listener?.onText(if (upper) base.uppercase() else base)
+        listener?.onLetter(if (upper) base.uppercase() else base)
         // 한 번 켠 Shift(캡스락 아님)는 한 글자 뒤 자동 해제
         if (shifted && !capsLock) {
             shifted = false
