@@ -16,3 +16,7 @@ local.properties
 # OS가 만드는 잡파일
 .DS_Store
 Thumbs.db
+
+# 아이콘 생성 스테이징 (결과 PNG는 app/src/main/res에만 커밋)
+tools/icon/out/
+tools/icon/out2b/
