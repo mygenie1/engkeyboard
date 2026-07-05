@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import com.hanyeong.keyboard.dict.Conjugation
 import com.hanyeong.keyboard.dict.DictEntry
 import com.hanyeong.keyboard.dict.DictionaryDb
 import com.hanyeong.keyboard.hangul.Back
@@ -166,8 +167,22 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         }
         val word = committedWord.toString() + automaton.composing()
         if (word.isEmpty()) return
-        val entries = dictionary[word] ?: return   // 사전에 없음 → 직전 추천 유지
-        keyboardView.showSuggestions(entries.take(MAX_SUGGESTIONS))
+
+        // 1) 단어가 사전에 그대로 있으면 그 추천으로 교체.
+        dictionary[word]?.let {
+            keyboardView.showSuggestions(it.take(MAX_SUGGESTIONS))
+            return
+        }
+        // 2) 없으면 용언 활용형인지 살펴 원형(…다)을 복원해 봅니다.
+        //    (먹었어 → 먹다) 확신할 때만 그 원형의 추천으로 교체합니다.
+        val base = Conjugation.resolveBase(word) { dictionary.containsKey(it) }
+        if (base != null) {
+            dictionary[base]?.let {
+                keyboardView.showSuggestions(it.take(MAX_SUGGESTIONS))
+                return
+            }
+        }
+        // 3) 사전에도 없고 원형 복원도 애매하면 직전 추천을 그대로 유지합니다.
     }
 
     /** 단어 경계를 만났을 때: 추적 중인 단어만 초기화하고 추천은 그대로 둡니다. */
