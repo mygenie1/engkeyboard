@@ -118,6 +118,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private lateinit var suggestionBar: LinearLayout
     private lateinit var keysContainer: LinearLayout   // 자판 본체(모드마다 다시 그림)
     private lateinit var cardView: LinearLayout
+    private lateinit var cardScroll: android.widget.ScrollView  // 카드 내용 스크롤(높이 제한)
     private lateinit var cardEnglish: TextView
     private lateinit var cardPron: TextView
     private lateinit var cardMeaning: TextView
@@ -290,16 +291,20 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     // ── 학습 카드 ───────────────────────────────────────────────────
 
     private fun buildCardView(): LinearLayout {
+        // 바깥판: 자판을 덮는 불투명 판. 아무 곳이나 누르면 닫힙니다.
         val card = LinearLayout(context)
         card.orientation = VERTICAL
         card.setBackgroundColor(colorCardBg)
-        card.setPadding(dp(18f), dp(14f), dp(18f), dp(14f))
-        // 카드는 자판을 덮는 불투명 판입니다. 아무 곳이나 누르면 닫혀,
-        // 다시 타이핑을 시작할 수 있습니다.
         card.isClickable = true
         card.setOnClickListener { hideCard() }
 
-        // 윗줄: 영어 단어 + 발음기호 + 닫기(✕)
+        // 내용판: 실제 글자들. 세로 스크롤(cardScroll) 안에 넣어, 내용이 길어도
+        // 카드가 '키보드 높이'를 절대 넘지 않게 합니다. (넘치면 내부 스크롤)
+        val content = LinearLayout(context)
+        content.orientation = VERTICAL
+        content.setPadding(dp(18f), dp(14f), dp(18f), dp(14f))
+
+        // 윗줄: 단어 + 발음기호 + 닫기(✕)
         val top = LinearLayout(context)
         top.orientation = HORIZONTAL
         top.gravity = Gravity.CENTER_VERTICAL
@@ -329,7 +334,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         close.setOnClickListener { hideCard() }
         top.addView(close)
 
-        card.addView(top)
+        content.addView(top)
 
         // 뜻
         cardMeaning = TextView(context)
@@ -337,7 +342,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         cardMeaning.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
         val meaningLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         meaningLp.topMargin = dp(10f)
-        card.addView(cardMeaning, meaningLp)
+        content.addView(cardMeaning, meaningLp)
 
         // 예문
         cardExample = TextView(context)
@@ -345,18 +350,47 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         cardExample.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
         val exLp = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         exLp.topMargin = dp(6f)
-        card.addView(cardExample, exLp)
+        content.addView(cardExample, exLp)
 
-        // 남는 세로 공간을 채워, 아래 '광고 자리'를 카드 맨 밑에 밀착시킵니다.
-        card.addView(View(context), LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-
-        // 광고 자리(현재 미사용): 카드 하단에 '배너 크기 영역만' 확보해 둡니다.
+        // 광고 자리(현재 미사용): 내용 맨 아래에 '배너 크기 영역만' 확보해 둡니다.
         // 지금은 광고 SDK도, 인터넷 권한도 넣지 않습니다. 기본은 접혀(높이 0)
-        // 보이지 않으며, 아래 AD_PLACEHOLDER_ENABLED = true 하나만 바꾸면
-        // 영역이 펼쳐집니다. (실제 배너는 그때 SDK를 붙여 이 영역에 넣습니다.)
-        card.addView(buildAdSlot(), adSlotParams())
+        // 보이지 않으며, AD_PLACEHOLDER_ENABLED = true 하나만 바꾸면 펼쳐집니다.
+        content.addView(buildAdSlot(), adSlotParams())
+
+        // 내용을 '키보드 높이 이내로 제한되는' 스크롤에 담아 카드에 올립니다.
+        cardScroll = BoundedCardScroll(context)
+        cardScroll.addView(
+            content,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        card.addView(cardScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         return card
+    }
+
+    /**
+     * 학습 카드 내용용 세로 스크롤. **높이를 절대 '키보드 본체(keysContainer)
+     * 높이' 이내로 강제**합니다. 내용이 더 길면 카드가 커지는 대신 내부에서
+     * 스크롤됩니다. → 카드가 입력창·앱 화면을 가리는 일을 원천 차단.
+     * (마일스톤 4의 "키보드 높이 불변, 오버레이" 원칙을 지키는 안전장치)
+     */
+    private inner class BoundedCardScroll(context: Context) : android.widget.ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val keyboardH = keysContainer.height
+            val bounded = if (keyboardH > 0) {
+                val incoming = if (View.MeasureSpec.getMode(heightMeasureSpec) == View.MeasureSpec.UNSPECIFIED)
+                    Int.MAX_VALUE else View.MeasureSpec.getSize(heightMeasureSpec)
+                View.MeasureSpec.makeMeasureSpec(
+                    CardBounds.clamp(incoming, keyboardH), View.MeasureSpec.AT_MOST
+                )
+            } else {
+                heightMeasureSpec
+            }
+            super.onMeasure(widthMeasureSpec, bounded)
+        }
     }
 
     /**
@@ -400,6 +434,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         setOptionalLine(cardMeaning, e.meaning, "뜻 · ")
         setOptionalLine(cardExample, e.example, "예문 · ")
         cardView.visibility = VISIBLE
+        cardScroll.scrollTo(0, 0)   // 항상 맨 위(단어)부터 보이도록
     }
 
     /** 값이 있으면 접두어를 붙여 보여 주고, 비어 있으면 그 줄을 숨깁니다. */
