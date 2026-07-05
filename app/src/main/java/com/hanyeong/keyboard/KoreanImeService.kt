@@ -9,6 +9,7 @@ import android.view.inputmethod.InputConnection
 import com.hanyeong.keyboard.dict.Conjugation
 import com.hanyeong.keyboard.dict.DictEntry
 import com.hanyeong.keyboard.dict.DictionaryDb
+import com.hanyeong.keyboard.dict.ReverseIndex
 import com.hanyeong.keyboard.hangul.Back
 import com.hanyeong.keyboard.hangul.HangulAutomaton
 import com.hanyeong.keyboard.hangul.Step
@@ -33,6 +34,9 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
     // 학습 사전을 메모리에 올려 두고 즉시 조회합니다. (한글 단어 → 항목들)
     private lateinit var dictionary: Map<String, List<DictEntry>>
 
+    // 영→한 역방향 학습용 색인 (영어 단어 → 항목들). 사전에서 파생.
+    private lateinit var reverseIndex: Map<String, List<DictEntry>>
+
     // 지금 타이핑 중인 단어에서 '이미 확정된 부분'. (조합 중 글자는 automaton이 따로 가짐)
     private val committedWord = StringBuilder()
 
@@ -40,6 +44,8 @@ class KoreanImeService : InputMethodService(), KoreanKeyboardView.Listener {
         super.onCreate()
         // 앱을 처음 켜면 이때 사전 파일이 만들어지고 기본 단어가 채워집니다.
         dictionary = DictionaryDb(this).loadAll()
+        // 같은 사전을 뒤집어 영어로도 찾을 수 있게 역색인을 만들어 둡니다.
+        reverseIndex = ReverseIndex.build(dictionary)
     }
 
     // 마지막으로 자판을 그릴 때 쓴 높이 설정. 설정이 바뀌면 다시 그립니다.
