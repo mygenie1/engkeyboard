@@ -366,8 +366,9 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
 
     /**
      * 맨 아랫줄. 모드에 따라 왼쪽 키가 달라집니다.
-     *   글자판: [?123] [,] [한/영] [스페이스] [.] [⏎]
+     *   글자판: [?123] [한/영] [,] [스페이스] [.] [⏎]
      *   기호판: [ABC·가] [,] [스페이스] [.] [⏎]
+     * 쉼표(,)는 모든 모드에서 스페이스 바로 왼쪽에 오도록 통일했습니다.
      */
     private fun buildBottomRow(): View {
         val row = rowContainer(charRowH)
@@ -389,12 +390,12 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             sym.setOnClickListener { toggleSymbols() }
             row.addView(sym, keyParams(1.5f))
 
-            addComma(row, 1f)
-
             val lang = makeKey("한/영", colorSpecial, colorSpecialPressed)
             lang.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             lang.setOnClickListener { toggleLanguage() }
             row.addView(lang, keyParams(1.5f))
+
+            addComma(row, 1f)
 
             addSpace(row, 4f)
             addPeriod(row, 1f)
