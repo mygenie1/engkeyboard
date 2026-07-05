@@ -15,6 +15,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hanyeong.keyboard.dict.DictEntry
@@ -112,6 +113,7 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
     private val colorSub = Color.parseColor("#6B7280")
 
     // 추천 바와 학습 카드의 부품들
+    private lateinit var suggestionScroll: HorizontalScrollView
     private lateinit var suggestionBar: LinearLayout
     private lateinit var keysContainer: LinearLayout   // 자판 본체(모드마다 다시 그림)
     private lateinit var cardView: LinearLayout
@@ -148,9 +150,25 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
         setBackgroundColor(colorBoard)
 
         // 1) 추천 바 (항상 표시, 높이 고정)
+        //    가로 스크롤 안에 담아, 추천이 바 폭을 넘으면 좌우로 밀어 볼 수 있게 합니다.
+        //    넘칠 때는 오른쪽 가장자리가 흐려지며 잘려, "더 있음"을 넌지시 알립니다.
         suggestionBar = buildSuggestionBar()
+        suggestionScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false      // 스크롤바 막대는 숨김(깔끔하게)
+            isHorizontalFadingEdgeEnabled = true       // 넘칠 때 가장자리 페이드로 암시
+            setFadingEdgeLength(dp(30f))
+            overScrollMode = View.OVER_SCROLL_NEVER    // 끝에서 당길 때 파란 광택 없음
+            // 스크롤 내용은 폭을 넘을 수 있어야 하므로 가로는 WRAP_CONTENT.
+            addView(
+                suggestionBar,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
         addView(
-            suggestionBar,
+            suggestionScroll,
             LayoutParams(LayoutParams.MATCH_PARENT, dp(suggestionBarH))
         )
 
@@ -250,6 +268,8 @@ class KoreanKeyboardView(context: Context) : LinearLayout(context) {
             lp.marginEnd = dp(6f)
             suggestionBar.addView(chip, lp)
         }
+        // 새 추천이 오면 항상 맨 왼쪽(첫 단어)부터 보이도록 스크롤을 되돌립니다.
+        if (::suggestionScroll.isInitialized) suggestionScroll.scrollTo(0, 0)
     }
 
     private fun makeChip(english: String): TextView {
